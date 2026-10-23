@@ -27,16 +27,19 @@ WHERE mno.operatorName = 'TELE2';
 The query must return the operator name, additional service name, and price.*/
 -- ==========================================
 
-
-SELECT
+    SELECT 
     mno.operatorName,
-    a.additionalServiceName,
+    s.additionalServiceName,
     oas.price
-FROM dbo.MobileNetworkOperator AS mno
-INNER JOIN dbo.OperatorAdditionalService AS oas
-    ON mno.operatorID = oas.operatorID
-INNER JOIN dbo.AdditionalService AS a
-    ON oas.additionalServiceID = a.additionalServiceID;
+FROM dbo.OperatorAdditionalService oas
+INNER JOIN dbo.MobileNetworkOperator mno ON oas.operatorID = mno.operatorID
+INNER JOIN dbo.AdditionalService s ON oas.additionalServiceID = s.additionalServiceID
+WHERE oas.additionalServiceID IN (
+    SELECT additionalServiceID
+    FROM dbo.OperatorAdditionalService
+    GROUP BY additionalServiceID
+    HAVING COUNT(DISTINCT operatorID) = (SELECT COUNT(*) FROM dbo.MobileNetworkOperator)
+);
 
 -- ==========================================
 -- 3. Number of countries belonging to each zone
@@ -124,16 +127,34 @@ return all tied plans. The query must return the plan name and
 number of subscribers.*/
 -- ==========================================
 
-SELECT TOP 3 WITH TIES
-    p.planName,
-    COUNT(s.subscriberID) AS subscriberCount
-FROM dbo.[Plan] p
-INNER JOIN dbo.Subscriber s ON p.planID = s.planID
-GROUP BY p.planID, p.planName
-ORDER BY subscriberCount DESC;
-
-
-
+WITH plan_subscribers AS
+(
+    SELECT
+        p.planID,
+        p.planName,
+        COUNT(s.subscriberID) AS number_of_subscribers
+    FROM dbo.[Plan] AS p
+    LEFT JOIN dbo.Subscriber AS s
+        ON p.planID = s.planID
+    GROUP BY
+        p.planID,
+        p.planName
+)
+SELECT
+    planName,
+    number_of_subscribers
+FROM
+(
+    SELECT
+        planName,
+        number_of_subscribers,
+        DENSE_RANK() OVER (
+            ORDER BY number_of_subscribers DESC
+        ) AS ranking
+    FROM plan_subscribers
+) AS ranked_plans
+WHERE ranking <= 3
+ORDER BY number_of_subscribers DESC;
 -- ==========================================
 -- 8. Randomly selected 10 subscribers with detailed status indicators
 /*Write a query that returns information about ten randomly selected subscribers 
@@ -206,13 +227,19 @@ ORDER BY callCount DESC;
 
 -- ==========================================
 -- 10. Most popular foreign country by number of call connections
+/*Write a query that determines the most popular foreign country based 
+on the number of calls made to that country. If several countries 
+are equally popular, return all of them.*/
 -- ==========================================
+
 
 SELECT TOP 1 WITH TIES
     c.countryName,
     COUNT(*) AS totalCalls
 FROM dbo.P2PConnection p2p
+INNER JOIN dbo.Service s ON p2p.serviceID = s.serviceID
 INNER JOIN dbo.Country c ON p2p.recipientCountry = c.countryCode
-WHERE c.countryName <> 'Lithuania'
+WHERE s.serviceID = 4 -- Skambučiai į užsienio tinklus
+  AND c.countryName NOT IN ('Lithuania', 'Lietuva')
 GROUP BY c.countryCode, c.countryName
 ORDER BY totalCalls DESC;
